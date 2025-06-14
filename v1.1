@@ -1,0 +1,195 @@
+import string
+import pandas as pd
+import unicodedata
+import re
+!pip install Levenshtein
+import Levenshtein
+
+
+def remove_accents(input_str):
+  nfkd_form = unicodedata.normalize('NFD', input_str)
+  return ''.join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+
+def cleantext(text):
+  if type(text) == int or type(text) == float or pd.isnull(text):
+    return ""
+  text = text.lower()
+  text = text.translate(str.maketrans('', '', string.punctuation))#removes all punctuation
+  text = ' '.join(text.split())#removes extra/ unnecesary spaces
+  text = remove_accents(text)
+  text = re.sub(r'(.)\1+', r'\1', text)#removes repeated letters
+
+  vowels = "aeiouyAEIOUY"
+  text = ''.join(char for char in text if char not in vowels)#removes all vowels
+  return text
+
+def cleannum(num):
+  if pd.isnull(num):
+        return ""
+  num = str(num)
+  num = num.translate(str.maketrans('', '', string.punctuation))
+  num = num.replace(" ", "")
+  return num
+
+
+def compnumcin(line1, line2):#100%
+  total =0
+
+  #cin test
+  if(line1["CIN_BENEF"]=="" or line2["CIN_BENEF"]==""):
+    total +=0
+  elif line1["CIN_BENEF"] ==  line2["CIN_BENEF"] :
+    total += 3
+  elif Levenshtein.distance(line1["CIN_BENEF"], line2["CIN_BENEF"]) <=2: #typing error
+    total += 2
+  else:
+    total += -3
+
+  #TEL test
+  if(line1["TEL_BENEF"]=="" or  line2["TEL_BENEF"]==""):
+    total +=0
+  elif line1["TEL_BENEF"] ==  line2["TEL_BENEF"] :
+    total += 3
+  elif Levenshtein.distance(line1["TEL_BENEF"], line2["TEL_BENEF"]) <=2: #typing error
+    total += 2
+  else:
+    total += -3
+
+  if total ==6:
+    total = 10 #both are exactly the same thus 100% match Bonus
+
+  return total
+
+def compfnamelname(line1, line2):#60%
+  total =0
+  #fname test
+  if(line1["PREN_BENEF"]=="" or line2["PREN_BENEF"]==""):
+    total +=0
+  elif line1["PREN_BENEF"] ==  line2["PREN_BENEF"] :
+    total += 2
+  elif Levenshtein.distance(line1["PREN_BENEF"], line2["PREN_BENEF"]) <=2: #typing error
+    total += 1
+  else:
+    total += -2
+
+
+  #lname test
+  if(line1["NOM_PREN_BENEF"]=="" or line2["NOM_PREN_BENEF"]==""):
+    total +=0
+  elif line1["NOM_PREN_BENEF"] ==  line2["NOM_PREN_BENEF"] :
+    total += 2
+  elif Levenshtein.distance(line1["NOM_PREN_BENEF"], line2["NOM_PREN_BENEF"]) <=2: #typing error
+    total += 1
+  else:
+    total += -2
+
+  if total == 4:
+    total = 5 #likely match bonus
+  return total
+
+
+def compmomdad(line1, line2):#siblings
+  total =0
+  #fname test
+  if(line1["PREN_PERE_BENEF"]=="" or line2["PREN_PERE_BENEF"]==""):
+    total +=0
+  elif line1["PREN_PERE_BENEF"] ==  line2["PREN_PERE_BENEF"] :
+    total += 2
+  elif Levenshtein.distance(line1["PREN_PERE_BENEF"], line2["PREN_PERE_BENEF"]) <=2: #typing error
+    total += 1
+  else:
+    total += -2
+
+
+  #lname test
+  if(line1["PREN_MERE_BENEF"]=="" or line2["PREN_MERE_BENEF"]==""):
+    total +=0
+  elif line1["PREN_MERE_BENEF"] ==  line2["PREN_MERE_BENEF"] :
+    total += 2
+  elif Levenshtein.distance(line1["PREN_MERE_BENEF"], line2["PREN_MERE_BENEF"]) <=2: #typing error
+    total += 1
+  else:
+    total += -2
+
+  return total
+
+def compaddress(line1, line2):#family
+  total =0
+  #fname test
+  if line1["ADR_BENEF"]=="" or line2["ADR_BENEF"]=="":
+    total +=0
+  elif line1["ADR_BENEF"] ==  line2["ADR_BENEF"] :
+    total += 2
+  elif Levenshtein.distance(line1["ADR_BENEF"], line2["ADR_BENEF"]) <=2: #typing error
+    total += 1
+  else:
+    total += -2
+
+  if line1["SEXE_BENEF"]== line2["SEXE_BENEF"] and line1["DATE_NAI_BENEF"] == line2["DATE_NAI_BENEF"]: #can be made better
+    total += 1
+
+  return total
+
+
+
+
+
+
+
+
+
+
+
+
+#test
+df_preview = pd.read_csv("/content/patient(1).csv", nrows=1)
+print(df_preview.columns.tolist())
+
+
+# Load
+df = pd.read_csv(
+    "/content/patient(1).csv",
+    sep=";",
+    encoding="utf-8",
+    usecols=[
+        "NOM_PREN_BENEF", "DATE_NAI_BENEF", "SEXE_BENEF",
+        "ADR_BENEF", "CIN_BENEF", "TEL_BENEF",
+        "PREN_PERE_BENEF", "PREN_MERE_BENEF", "PREN_BENEF"
+    ]
+)
+
+#clean
+for i in range(len(df)):
+  df.loc[i, "NOM_PREN_BENEF"] = cleantext(df.loc[i, "NOM_PREN_BENEF"])
+  df.loc[i, "ADR_BENEF"] = cleantext(df.loc[i, "ADR_BENEF"])
+  df.loc[i, "PREN_PERE_BENEF"] = cleantext(df.loc[i, "PREN_PERE_BENEF"])
+  df.loc[i, "PREN_MERE_BENEF"] = cleantext(df.loc[i, "PREN_MERE_BENEF"])
+  df.loc[i, "PREN_BENEF"] = cleantext(df.loc[i, "PREN_BENEF"])
+  df.loc[i, "SEXE_BENEF"] = cleantext(df.loc[i, "SEXE_BENEF"])
+
+  df.loc[i, "CIN_BENEF"] = cleannum(df.loc[i, "CIN_BENEF"])
+  df.loc[i, "TEL_BENEF"] = cleannum(df.loc[i, "TEL_BENEF"])
+  df.loc[i, "DATE_NAI_BENEF"] = cleannum(df.loc[i, "DATE_NAI_BENEF"])
+
+#start comparing
+for i in range(len(df)):
+  score=0
+  #insert function to skip pre-stored df.iloc[i]. WON'T NEED THIS THEN
+  for j in range(i+1, len(df)):
+    score += compfnamelname(df.loc[i], df.loc[j])#60%
+    score += compnumcin(df.loc[i], df.loc[j])#100%
+    score += compmomdad(df.loc[i], df.loc[j])#siblings
+    score += compaddress(df.loc[i], df.loc[j])#family
+
+
+    if score>7:
+        print("very likely match to ", i+2, ": ", j+2, ": ", df.loc[j].to_list(), "Total: ", total)
+        #insert function to store df.iloc[j] OR CAN SIMPLY REMOVE FROM FILE? IF SO, WILL I NEED TO ADJUTS FILE SIZE?
+
+    elif score>5:
+        print("possible match to ", i+2, ": ", j+2, ": ", df.loc[j].to_list(), "Total: ", total)
+        #insert function to store df.iloc[j] OR CAN SIMPLY REMOVE FROM FILE? OR CAN SIMPLY REMOVE FROM FILE?
+
+
+
