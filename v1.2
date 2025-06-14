@@ -4,6 +4,7 @@ import unicodedata
 import re
 !pip install Levenshtein
 import Levenshtein
+from joblib import Parallel, delayed
 
 
 def remove_accents(input_str):
@@ -143,7 +144,7 @@ def compaddress(line1, line2):#family
 
 
 #test
-df_preview = pd.read_csv("/content/patient(1).csv", nrows=1)
+df_preview = pd.read_csv("/content/patient(1).csv", nrows=1, encoding="cp1256")
 print(df_preview.columns.tolist())
 
 
@@ -151,7 +152,7 @@ print(df_preview.columns.tolist())
 df = pd.read_csv(
     "/content/patient(1).csv",
     sep=";",
-    encoding="utf-8",
+    encoding="cp1256",
     usecols=[
         "NOM_PREN_BENEF", "DATE_NAI_BENEF", "SEXE_BENEF",
         "ADR_BENEF", "CIN_BENEF", "TEL_BENEF",
@@ -160,35 +161,38 @@ df = pd.read_csv(
 )
 
 #clean
-for i in range(len(df)):
-  df.loc[i, "NOM_PREN_BENEF"] = cleantext(df.loc[i, "NOM_PREN_BENEF"])
-  df.loc[i, "ADR_BENEF"] = cleantext(df.loc[i, "ADR_BENEF"])
-  df.loc[i, "PREN_PERE_BENEF"] = cleantext(df.loc[i, "PREN_PERE_BENEF"])
-  df.loc[i, "PREN_MERE_BENEF"] = cleantext(df.loc[i, "PREN_MERE_BENEF"])
-  df.loc[i, "PREN_BENEF"] = cleantext(df.loc[i, "PREN_BENEF"])
-  df.loc[i, "SEXE_BENEF"] = cleantext(df.loc[i, "SEXE_BENEF"])
+rows =  list(df.itertuples(index=False))
+for i, row in enumerate(df.itertuples(index=False)):
+    df.at[i, "NOM_PREN_BENEF"] = cleantext(row.NOM_PREN_BENEF)
+    df.at[i, "ADR_BENEF"] = cleantext(row.ADR_BENEF)
+    df.at[i, "PREN_PERE_BENEF"] = cleantext(row.PREN_PERE_BENEF)
+    df.at[i, "PREN_MERE_BENEF"] = cleantext(row.PREN_MERE_BENEF)
+    df.at[i, "PREN_BENEF"] = cleantext(row.PREN_BENEF)
+    df.at[i, "SEXE_BENEF"] = cleantext(row.SEXE_BENEF)
 
-  df.loc[i, "CIN_BENEF"] = cleannum(df.loc[i, "CIN_BENEF"])
-  df.loc[i, "TEL_BENEF"] = cleannum(df.loc[i, "TEL_BENEF"])
-  df.loc[i, "DATE_NAI_BENEF"] = cleannum(df.loc[i, "DATE_NAI_BENEF"])
+    df.at[i, "CIN_BENEF"] = cleannum(row.CIN_BENEF)
+    df.at[i, "TEL_BENEF"] = cleannum(row.TEL_BENEF)
+    df.at[i, "DATE_NAI_BENEF"] = cleannum(row.DATE_NAI_BENEF)
 
 #start comparing
-for i in range(len(df)):
-  score=0
-  #insert function to skip pre-stored df.iloc[i]. WON'T NEED THIS THEN
-  for j in range(i+1, len(df)):
-    score += compfnamelname(df.loc[i], df.loc[j])#60%
-    score += compnumcin(df.loc[i], df.loc[j])#100%
-    score += compmomdad(df.loc[i], df.loc[j])#siblings
-    score += compaddress(df.loc[i], df.loc[j])#family
+rows = list(df.itertuples(index=False))
 
+for i, row_i in enumerate(rows):
+    score = 0
+    for j in range(i + 1, len(rows)):
+        row_j = rows[j]
 
-    if score>7:
-        print("very likely match to ", i+2, ": ", j+2, ": ", df.loc[j].to_list(), "Total: ", total)
-        #insert function to store df.iloc[j] OR CAN SIMPLY REMOVE FROM FILE? IF SO, WILL I NEED TO ADJUTS FILE SIZE?
+        score += compfnamelname(row_i._asdict(), row_j._asdict())  # 60%
+        score += compnumcin(row_i._asdict(), row_j._asdict())      # 100%
+        if score <= 0:
+          continue
+        score += compmomdad(row_i._asdict(), row_j._asdict())      # siblings
+        score += compaddress(row_i._asdict(), row_j._asdict())     # family
 
-    elif score>5:
-        print("possible match to ", i+2, ": ", j+2, ": ", df.loc[j].to_list(), "Total: ", total)
+        if score > 7:
+            print("very likely match to", i + 2, ":", j + 2, ":", list(row_j), "Total:", score)
+        elif score > 5:
+            print("possible match to", i + 2, ":", j + 2, ":", list(row_j), "Total:", score)
         #insert function to store df.iloc[j] OR CAN SIMPLY REMOVE FROM FILE? OR CAN SIMPLY REMOVE FROM FILE?
 
 
