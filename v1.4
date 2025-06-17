@@ -1,4 +1,4 @@
-import string 
+import string
 import pandas as pd
 import unicodedata
 import re
@@ -6,8 +6,8 @@ import re
 import Levenshtein
 from joblib import Parallel, delayed
 import time
-
-
+from nltk.util import ngrams
+from nltk.metrics import jaccard_distance
 
 def remove_accents(input_str):
   nfkd_form = unicodedata.normalize('NFD', input_str)
@@ -119,15 +119,21 @@ def compmomdad(line1, line2):#siblings
 
 def compaddress(line1, line2):#family
   total =0
-  #fname test
-  if line1["ADR_BENEF"]=="" or line2["ADR_BENEF"]=="":
-    total +=0
-  elif line1["ADR_BENEF"] ==  line2["ADR_BENEF"] :
+
+  set1 = set(line1["ADR_BENEF"].split())
+  set2 = set(line2["ADR_BENEF"].split())
+  dist = jaccard_distance(set1, set2) #?????? compares words rather than letters???? I thought because roads are agreed apon
+
+  if dist <= 0.3:
     total += 2
-  elif Levenshtein.distance(line1["ADR_BENEF"], line2["ADR_BENEF"]) <=2: #typing error
+  elif dist < 0.5:
     total += 1
-  else:
-    total += -2
+  else :
+    total += -1
+  
+  if line1["ADR_BENEF"] == "" or line2["ADR_BENEF"] == "":
+    total = 0
+
 
   if line1["SEXE_BENEF"]== line2["SEXE_BENEF"] and line1["DATE_NAI_BENEF"] == line2["DATE_NAI_BENEF"]: #can be made better
     total += 1
@@ -148,7 +154,7 @@ def compaddress(line1, line2):#family
 
 start = time.time()
 #test
-df_preview = pd.read_csv("/content/patient(1).csv", nrows=1, encoding="cp1256")
+df_preview = pd.read_csv("/content/patient(1).csv",sep=";", nrows=1, encoding="cp1256")
 print(df_preview.columns.tolist())
 
 
@@ -157,16 +163,17 @@ df = pd.read_csv(
     "/content/patient(1).csv",
     sep=";",
     encoding="cp1256",
-    nrows=1000,
+    nrows=500,
     usecols=[
         "NOM_PREN_BENEF", "DATE_NAI_BENEF", "SEXE_BENEF",
         "ADR_BENEF", "CIN_BENEF", "TEL_BENEF",
         "PREN_PERE_BENEF", "PREN_MERE_BENEF", "PREN_BENEF"
     ]
-    
+
 )
 
 #clean
+df.columns = [col.strip().replace('"', '') for col in df.columns]
 rows =  list(df.itertuples(index=False))
 for i, row in enumerate(df.itertuples(index=False)):
     df.at[i, "NOM_PREN_BENEF"] = cleantext(row.NOM_PREN_BENEF)
