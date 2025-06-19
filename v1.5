@@ -1,3 +1,5 @@
+rewrite this code so that it correctly uses cProfile to profile the entire script:
+
 import string
 import pandas as pd
 import unicodedata
@@ -8,6 +10,8 @@ from joblib import Parallel, delayed
 import time
 from nltk.util import ngrams
 from nltk.metrics import jaccard_distance
+from collections import defaultdict
+
 
 def remove_accents(input_str):
   nfkd_form = unicodedata.normalize('NFD', input_str)
@@ -94,7 +98,7 @@ def compfnamelname(line1, line2):#60%
 
 def compmomdad(line1, line2):#siblings
   total =0
-  #fname test
+  #mom name test
   if(line1["PREN_PERE_BENEF"]=="" or line2["PREN_PERE_BENEF"]==""):
     total +=0
   elif line1["PREN_PERE_BENEF"] ==  line2["PREN_PERE_BENEF"] :
@@ -105,7 +109,7 @@ def compmomdad(line1, line2):#siblings
     total += -2
 
 
-  #lname test
+  #dad name test
   if(line1["PREN_MERE_BENEF"]=="" or line2["PREN_MERE_BENEF"]==""):
     total +=0
   elif line1["PREN_MERE_BENEF"] ==  line2["PREN_MERE_BENEF"] :
@@ -120,9 +124,12 @@ def compmomdad(line1, line2):#siblings
 def compaddress(line1, line2):#family
   total =0
 
-  set1 = set(line1["ADR_BENEF"].split())
-  set2 = set(line2["ADR_BENEF"].split())
-  dist = jaccard_distance(set1, set2) #?????? compares words rather than letters???? I thought because roads are agreed apon
+  if line1["ADR_BENEF"] == "" or line2["ADR_BENEF"] == "":
+    dist = 1.0
+  else:
+    set1 = set(line1["ADR_BENEF"].split())
+    set2 = set(line2["ADR_BENEF"].split())
+    dist = jaccard_distance(set1, set2) #?????? compares words rather than letters???? I thought because roads are agreed apon
 
   if dist <= 0.3:
     total += 2
@@ -130,9 +137,8 @@ def compaddress(line1, line2):#family
     total += 1
   else :
     total += -1
-  
-  if line1["ADR_BENEF"] == "" or line2["ADR_BENEF"] == "":
-    total = 0
+
+
 
 
   if line1["SEXE_BENEF"]== line2["SEXE_BENEF"] and line1["DATE_NAI_BENEF"] == line2["DATE_NAI_BENEF"]: #can be made better
@@ -140,7 +146,27 @@ def compaddress(line1, line2):#family
 
   return total
 
+# Main comparison function
+def compare_pair(i, j):
+    row_i = row_dicts[i]
+    row_j = row_dicts[j]
+    score = 0
 
+    score += compfnamelname(row_i, row_j)
+    score += compnumcin(row_i, row_j)
+
+    if score <= 0:
+        return None  # Skip weak matches early
+
+    score += compmomdad(row_i, row_j)
+    score += compaddress(row_i, row_j)
+
+    if score > 7:
+        return f"very likely match to {i + 2} : {j + 2} : {list(df.iloc[j])} Total: {score}"
+    elif score > 5:
+        return f"possible match to {i + 2} : {j + 2} : {list(df.iloc[j])} Total: {score}"
+    else:
+        return None
 
 
 
@@ -163,7 +189,7 @@ df = pd.read_csv(
     "/content/patient(1).csv",
     sep=";",
     encoding="cp1256",
-    nrows=500,
+    nrows=60000,
     usecols=[
         "NOM_PREN_BENEF", "DATE_NAI_BENEF", "SEXE_BENEF",
         "ADR_BENEF", "CIN_BENEF", "TEL_BENEF",
@@ -175,6 +201,8 @@ df = pd.read_csv(
 #clean
 df.columns = [col.strip().replace('"', '') for col in df.columns]
 rows =  list(df.itertuples(index=False))
+df.columns = [col.strip().replace('"', '') for col in df.columns]
+
 for i, row in enumerate(df.itertuples(index=False)):
     df.at[i, "NOM_PREN_BENEF"] = cleantext(row.NOM_PREN_BENEF)
     df.at[i, "ADR_BENEF"] = cleantext(row.ADR_BENEF)
@@ -190,38 +218,29 @@ for i, row in enumerate(df.itertuples(index=False)):
 rows =  list(df.itertuples(index=False))
 
 row_dicts = [row._asdict() for row in rows]#dictionary conversion
-def compare_pair(i, j):
-    row_i = row_dicts[i]
-    row_j = row_dicts[j]
-    score = 0
-
-    score += compfnamelname(row_i, row_j)
-    score += compnumcin(row_i, row_j)
-
-    if score <= 0:
-        return None  # Skipping
-
-    score += compmomdad(row_i, row_j)
-    score += compaddress(row_i, row_j)
-
-    if score > 7:
-        return f"very likely match to {i + 2} : {j + 2} : {list(rows[j])} Total: {score}"
-    elif score > 5:
-        return f"possible match to {i + 2} : {j + 2} : {list(rows[j])} Total: {score}"
+blocks = defaultdict(list)
+for idx, row in enumerate(row_dicts):
+    lname = row["NOM_PREN_BENEF"]
+    if lname:
+        key = lname[0]  # First letter
     else:
-        return None
+        key = "#"  # default group for empty last names
+    blocks[key].append((idx, row))
 
+# Parallel pairwise comparisons within blocks
+results = []
+for block_key, entries in blocks.items():
+    indices = [idx for idx, _ in entries]
+    block_results = Parallel(n_jobs=-1, backend="loky", verbose=10)(
+        delayed(compare_pair)(i, j)
+        for idx_i, i in enumerate(indices)
+        for j in indices[idx_i + 1:]
+    )
+    results.extend(block_results)
 
-results = Parallel(n_jobs=-1, backend="loky", verbose=10)(# paralellism
-    delayed(compare_pair)(i, j)
-    for i in range(len(row_dicts))
-    for j in range(i + 1, len(row_dicts))
-)
-
-
+# Print matches
 for result in results:
     if result:
         print(result)
 
-print("Finished in", time.time() - start, "seconds")
-
+print("Finished in", time.time() - start, "seconds") 
