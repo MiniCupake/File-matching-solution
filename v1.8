@@ -7,123 +7,6 @@ import numpy as np
 import faiss
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
-from nltk.metrics import jaccard_distance
-from rapidfuzz.distance import Levenshtein as RL
-from joblib import Parallel, delayed
-
-# ========== TEXT CLEANING ==========
-def remove_accents(input_str):
-    nfkd_form = unicodedata.normalize('NFD', input_str)
-    return ''.join([c for c in nfkd_form if not unicodedata.combining(c)])
-
-def cleantext(text):
-    if pd.isnull(text): return ""
-    text = str(text).lower()
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    text = ' '.join(text.split())
-    text = remove_accents(text)
-    text = re.sub(r'(.)\1+', r'\1', text)
-    vowels = "aeiouy"
-    return ''.join(char for char in text if char not in vowels)
-
-def cleannum(num):
-    if pd.isnull(num): return ""
-    return re.sub(r'[\s\-\.]', '', str(num))
-
-# ========== COMPARISON FUNCTIONS ==========
-def compnumcin(r1, r2):
-    score = 0
-    if r1["CIN_BENEF"] and r2["CIN_BENEF"]:
-        if r1["CIN_BENEF"] == r2["CIN_BENEF"]:
-            score += 4
-        elif RL.distance(r1["CIN_BENEF"], r2["CIN_BENEF"]) <= 2:
-            score += 2
-        else:
-            score -= 3
-    if r1["TEL_BENEF"] and r2["TEL_BENEF"]:
-        if r1["TEL_BENEF"] == r2["TEL_BENEF"]:
-            score += 3
-        elif RL.distance(r1["TEL_BENEF"], r2["TEL_BENEF"]) <= 2:
-            score += 2
-        else:
-            score -= 3
-    if score == 7:
-        score = 10
-    return score
-
-def compfnamelname(r1, r2):
-    score = 0
-    for k in ["PREN_BENEF", "NOM_PREN_BENEF"]:
-        if r1[k] and r2[k]:
-            if r1[k] == r2[k]:
-                score += 2
-            elif RL.distance(r1[k], r2[k]) <= 2:
-                score += 1
-            else:
-                score -= 2
-    return 5 if score == 4 else score
-
-def compmomdad(r1, r2):
-    score = 0
-    for k in ["PREN_PERE_BENEF", "PREN_MERE_BENEF"]:
-        if r1[k] and r2[k]:
-            if r1[k] == r2[k]:
-                score += 2
-            elif RL.distance(r1[k], r2[k]) <= 2:
-                score += 1
-            else:
-                score -= 2
-    return score
-
-def compaddress(r1, r2):
-    if not r1["ADR_BENEF"] or not r2["ADR_BENEF"]:
-        dist = 1.0
-    else:
-        set1, set2 = set(r1["ADR_BENEF"].split()), set(r2["ADR_BENEF"].split())
-        dist = jaccard_distance(set1, set2)
-    score = 2 if dist <= 0.3 else 1 if dist < 0.5 else -1
-    if r1["SEXE_BENEF"] == r2["SEXE_BENEF"] and r1["DATE_NAI_BENEF"] == r2["DATE_NAI_BENEF"]:
-        score += 1
-    return score
-
-# ========== LOAD AND CLEAN DATA ==========
-start = time.time()
-
-cols = ["COD_BENEF", "NOM_PREN_BENEF", "DATE_NAI_BENEF", "SEXE_BENEF", "ADR_BENEF", "CIN_BENEF", "TEL_BENEF", "PREN_PERE_BENEF", "PREN_MERE_BENEF", "PREN_BENEF"]
-df = pd.read_csv("/content/patient(1).csv", sep=";", encoding="cp1256", usecols=cols, nrows=60000)
-
-for col in cols:
-    if col in ["CIN_BENEF", "TEL_BENEF", "DATE_NAI_BENEF"]:
-        df[col] = df[col].apply(cleannum)
-    elif col != "COD_BENEF":
-        df[col] = df[col].apply(cleantext)
-
-df["COMPOSITE"] = (
-    df["NOM_PREN_BENEF"].fillna("") + " " +
-    df["PREN_BENEF"].fillna("") + " " +
-    df["PREN_PERE_BENEF"].fillna("") + " " +
-    df["PREN_MERE_BENEF"].fillna("") + " " +
-    df["ADR_BENEF"].fillna("")
-)
-
-row_dicts = df.to_dict(orient="records")
-
-# ========== FAISS INDEX (IVF + Flat) ==========
-vectorizer = TfidfVectorizer(analyzer='char_wb', ngram_range=(2, 5), max_features=3000)
-X = vectorizer.fit_transform(df["COMPOSITE"]).astype(np.float32)
-
-# Normalize to simulate cosine similarity
-X_normalized = normalize(X, norm='l2', axis=1)
-X_dense = X_normalized.toarray()
-import string
-import pandas as pd
-import unicodedata
-import re
-import time
-import numpy as np
-import faiss
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import normalize
 import Levenshtein
 from nltk.metrics import jaccard_distance
 
@@ -252,51 +135,13 @@ for i, (neighbors, sims) in enumerate(zip(indices, similarities)):
         if score <= 0:
             continue
         score += compmomdad(row_i, row_j) + compaddress(row_i, row_j)
-        if score >= 6:
+        if score >= 7:
             matches.append({
                 "COD_BENEF": cod_i,
                 "MATCHED_COD_BENEF": row_j["COD_BENEF"],
                 "SCORE": score
             })
     all_results.extend(matches)
-
-# ========== SAVE TO EXCEL ==========
-results_df = pd.DataFrame(all_results)
-results_df.to_excel("/content/matching_results.xlsx", index=False)
-
-print("Finished in", time.time() - start, "seconds")
-
-# IVF index
-n_clusters = int(np.sqrt(len(X_dense)))
-quantizer = faiss.IndexFlatIP(X_dense.shape[1])
-index = faiss.IndexIVFFlat(quantizer, X_dense.shape[1], n_clusters, faiss.METRIC_INNER_PRODUCT)
-index.train(X_dense)
-index.add(X_dense)
-_, indices = index.search(X_dense, 15)
-
-# ========== PARALLEL MATCHING ==========
-def compute_matches(i):
-    matches = []
-    row_i = row_dicts[i]
-    cod_i = row_i["COD_BENEF"]
-    for j in indices[i]:
-        if j <= i:
-            continue
-        row_j = row_dicts[j]
-        score = compfnamelname(row_i, row_j) + compnumcin(row_i, row_j)
-        if score <= 0:
-            continue
-        score += compmomdad(row_i, row_j) + compaddress(row_i, row_j)
-        if score >= 6:
-            matches.append({
-                "COD_BENEF": cod_i,
-                "MATCHED_COD_BENEF": row_j["COD_BENEF"],
-                "SCORE": score
-            })
-    return matches
-
-all_results = Parallel(n_jobs=-1)(delayed(compute_matches)(i) for i in range(len(row_dicts)))
-all_results = [item for sublist in all_results for item in sublist]
 
 # ========== SAVE TO EXCEL ==========
 results_df = pd.DataFrame(all_results)
